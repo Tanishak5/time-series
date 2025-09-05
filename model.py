@@ -7,6 +7,8 @@ import yfinance as yf
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import streamlit as st
 import ta
+import mpld3
+import streamlit.components.v1 as components
 
 
 st.title("AAPL Stock Forecaster using Prophet")
@@ -21,8 +23,9 @@ if ticker:
         data_frame = data_frame.reset_index() #Sets the date as a column rather than a row
         data_frame.columns = data_frame.columns.get_level_values(0) #Gets rid of ticker column
         training_date = pd.to_datetime("2025-01-01")
+        forecast_end = training_date + pd.Timedelta(days=period_predictions)
         train_data_frame = data_frame[data_frame['Date'] <= training_date].copy() #CURRENTLY THERE IS NO TEST TRAIN SPLIT BUT THERE WILL BE
-        test_data_frame = data_frame[data_frame['Date'] > training_date].copy()
+        test_data_frame = data_frame[(data_frame['Date'] > training_date )& (data_frame['Date'] <= forecast_end)].copy()
 
         #RSI CALCULATION - TRAINING
         train_data_frame["rsi"] = ta.momentum.RSIIndicator(train_data_frame['Close'], window = 14).rsi() #Create RSI column
@@ -45,7 +48,7 @@ if ticker:
         model.fit(train_data_frame)
 
         #PREDICTIONS
-        future_frame = model.make_future_dataframe(periods = len(test_data_frame)) #previously input predictions
+        future_frame = model.make_future_dataframe(periods = period_predictions) #previously input predictions
         future_frame['rsi'] = 0
         #creates RSI for the future frame as well
         future_frame.loc[:len(train_data_frame)-1, 'rsi'] = train_data_frame['rsi'].values 
@@ -66,15 +69,20 @@ if ticker:
         ax.axvline(forecast_start, color='r', linestyle='--', label="Forecast start") 
         ax.fill_between(forecast['ds'], forecast['yhat_lower'], forecast['yhat_upper'], alpha=0.2) 
         ax.legend()
-        st.pyplot(fig)
+        html_fig = mpld3.fig_to_html(fig)
+        components.html(html_fig, height=600, width = 1200)
+
+        # st.pyplot(fig)
 
         #EVALUATION
         data_frame_cv = cross_validation(model, initial="730 days", period="180 days", horizon="730 days") 
         data_frame_perf = performance_metrics(data_frame_cv)
         actual = np.exp(test_data_frame['y']) #prev was train
         # predictions = forecast['yhat'].values[:len(train_data_frame)]
+        # forecast_test = forecast[['ds','yhat']].merge(test_data_frame[['ds','y']], on='ds', how='inner')
+        test_length = len(test_data_frame)
         predictions_train = forecast['yhat'].values[:len(train_data_frame)]
-        predictions_test = forecast['yhat'].values[len(train_data_frame): len(train_data_frame) + len(test_data_frame)]
+        predictions_test =  forecast['yhat'].values[len(train_data_frame): len(train_data_frame) + len(test_data_frame)]
 
         mae = mean_absolute_error(actual, predictions_test)
         rmse = np.sqrt(mean_squared_error(actual, predictions_test))
